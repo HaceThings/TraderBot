@@ -28,18 +28,45 @@ def get_stock_data(symbol="T", interval="5min", type="TIME_SERIES_INTRADAY"):
             type = 
     """
     res = requests.get("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval  + "&apikey=" + api_key)
-    data = json.loads(res.text)
+    convert_request_data(res)
 
-    #Returns a group of the key-value pairs in the dictionary
-    results = data.items()
-    #Converts obj to a list
-    temp_data = list(result)
-    #Convert list to an array
-    temp_array = np.array(temp_data)
-
-    intraday_data = np.array(list(temp_array[1][1].items()))
-
-
+def convert_request_data(res):
+    time_stamps = []
+    open = []
+    high = []
+    low = []
+    close = []
+    volume = []
+    headers = ["Time Stamp", "Open", "High", "Low", "Close", "Volume"]
+    try:
+        data = json.loads(res.text)
+        ###Conversion from dictionary to pandas dataframe###
+        #Returns a group of the key-value pairs in the dictionary
+        result = data.items()
+        #Converts obj to a list
+        temp_data = list(result)
+        #Convert list to an array
+        temp_array = np.array(temp_data)
+        intraday_data = np.array(list(temp_array[1][1].items()))
+    
+        for row in intraday_data:
+            time_stamps.append(row[0])
+            open.append(row[1]['1. open'])
+            high.append(row[1]['2. high'])
+            low.append(row[1]['3. low'])
+            close.append(row[1]['4. close'])
+            volume.append(row[1]['5. volume'])
+    
+        df = pd.DataFrame(time_stamps, columns=[headers[0]])
+        df[[headers[1]]] = open
+        df[[headers[2]]] = high
+        df[[headers[3]]] = low
+        df[[headers[4]]] = close
+        df[[headers[5]]] = volume
+        print(df)
+    except Exception:
+        pass
+    
 
 def main():
     for sym in symbols:
