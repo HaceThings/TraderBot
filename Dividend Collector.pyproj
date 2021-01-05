@@ -11,7 +11,7 @@
     <OutputPath>.</OutputPath>
     <Name>Dividend Collector</Name>
     <RootNamespace>Dividend Collector</RootNamespace>
-    <InterpreterId>CondaEnv|CondaEnv|miniconda3</InterpreterId>
+    <InterpreterId>CondaEnv|CondaEnv|stocks</InterpreterId>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -29,6 +29,7 @@
   </ItemGroup>
   <ItemGroup>
     <InterpreterReference Include="CondaEnv|CondaEnv|miniconda3" />
+    <InterpreterReference Include="CondaEnv|CondaEnv|stocks" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
