@@ -3,19 +3,12 @@ import numpy as np
 import json
 import pandas as pd
 import sqlite3
-
-### DATA IMPORT ###
-#Import all stock data from Alex
-div_stocks = np.genfromtxt('StockData/Watchlist_DIV+Swings_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1)
-pref_stocks = np.genfromtxt('StockData/Watchlist_Preferred+Stocks_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1)
-risk_swing_stocks = np.genfromtxt('StockData/Watchlist_Risk+Swing_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1)
-stock_type_lists = [div_stocks, pref_stocks, risk_swing_stocks]
-
+import time
 
 class data_collector():
     def __init__(self):
         self.symbol_list = []
-        self.db_filename = 'data.db'
+        self.db_filename = 'demo.db'
         self.api_key = "QFAYI1XPUGD6UF9O"
 
     def create_db(self):
@@ -23,12 +16,12 @@ class data_collector():
             conn = sqlite3.connect(self.db_filename)
             c = conn.cursor()
             # Create a table to store stock information
-            c.execute('CREATE TABLE STOCK_INFO (Symbol text, Sector text, DividendYield decimal, DividendDate datetime, ExDividendDate datetime')
+            c.execute('CREATE TABLE STOCK_INFO (Symbol text, Sector text, DividendYield decimal, DividendDate datetime, ExDividendDate datetime)')
             # Create a table to store stock intraday data
             c.execute('CREATE TABLE STOCK_DATA (TimeStamp datetime, Open decimal, High decimal, Low decimal, Close decimal, Volume int)')
             conn.commit()
             print(sqlite3.version)
-        except Error as e:
+        except Exception as e:
             print(e)
         finally:
             if conn:
@@ -46,14 +39,35 @@ class data_collector():
     def set_symbol_list(self, symbol_list):
         self.symbol_list = symbol_list
 
-    def get_stock_information(self, symbol):
+    def get_stock_information_single(self, symbol):
          res = requests.get("https://www.alphavantage.co/query?function=" + "OVERVIEW" + "&symbol=" + symbol + "&apikey=" + self.api_key)
          data = json.loads(res.text)
-         result = data.items()
-         temp_data = list(result)
-         temp_array = np.array(temp_data)
-         print(temp_array)
+         
+         try:
+            conn = sqlite3.connect(self.db_filename)
+            c = conn.cursor()
 
+            #(Symbol text, Sector text, DividendYield decimal, DividendDate datetime, ExDividendDate datetime)
+
+            df = pd.DataFrame(data['Symbol'], columns=['Symbol'])
+            df[['Sector']] = data['Sector']
+            df[['DividendYield']] = data['DividendYield']
+            df[['DividendDate']] = data['DividendDate']
+            df[['ExDividendDate']] = data['ExDividendDate']
+            df[['DividendPerShare']] = data['DividendPerShare']
+            print(df)
+
+            df.to_sql('STOCK_INFO', conn, if_exists='append', index = False)
+            conn.close()
+
+         except Exception as e:
+            print(e)
+            pass
+
+    def get_stock_information_list(self):
+        for symbol in self.get_symbol_list():
+            self.get_stock_information_single(symbol)
+            time.sleep(12)
 
     def get_stock_time_series_data(self, symbol="T", interval="1min", type="TIME_SERIES_INTRADAY"): 
         """
@@ -73,9 +87,14 @@ class data_collector():
 
         res = requests.get("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval  + "&apikey=" + self.api_key)
 
-        time_stamps = [], open = [], high = []
-        low = [], close = [], volume = []
-        stocks = [], stock_types = []
+        time_stamps = []
+        open = []
+        high = []
+        low = []
+        close = []
+        volume = []
+        stocks = []
+        stock_types = []
         headers = ["Time Stamp", "Open", "High", "Low", "Close", "Volume"]
 
         try:
@@ -118,7 +137,31 @@ class data_collector():
         except Exception:
             pass
 
+
+
 def main():
+    ### DATA IMPORT ###
+    symbol_list = []
+    #Import all stock data from Alex
+    div_stocks = np.genfromtxt('StockData/Watchlist_DIV+Swings_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
+    pref_stocks = np.genfromtxt('StockData/Watchlist_Preferred+Stocks_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
+    risk_swing_stocks = np.genfromtxt('StockData/Watchlist_Risk+Swing_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
+    stock_type_lists = [div_stocks, pref_stocks, risk_swing_stocks]
+
+    for list in stock_type_lists:
+        for symbol in list:
+            symbol_list.append(symbol)
+
+    dg = data_collector()
+    dg.set_symbol_list(symbol_list)
+    dg.set_db_filename('stock_data.db')
+    dg.create_db()
+    dg.get_stock_information_list()
+    dg.get_stock_time_series_data()
+
+    for symbol in dg.get_symbol_list():
+        dg.get_stock_time_series_data(symbol, '1min', 'TIME_SERIES_INTRADAY_EXTENDED')
+        stock_type_lists = [div_stocks, pref_stocks, risk_swing_stocks]
 
 
 
