@@ -41,24 +41,15 @@ class data_collector():
 
     def get_stock_information_single(self, symbol):
          res = requests.get("https://www.alphavantage.co/query?function=" + "OVERVIEW" + "&symbol=" + symbol + "&apikey=" + self.api_key)
-         data = json.loads(res.text)
+         res_data = json.loads(res.text)
          
          try:
             conn = sqlite3.connect(self.db_filename)
             c = conn.cursor()
-
-            #(Symbol text, Sector text, DividendYield decimal, DividendDate datetime, ExDividendDate datetime)
-
-            df = pd.DataFrame(data['Symbol'], columns=['Symbol'])
-            df[['Sector']] = data['Sector']
-            df[['DividendYield']] = data['DividendYield']
-            df[['DividendDate']] = data['DividendDate']
-            df[['ExDividendDate']] = data['ExDividendDate']
-            df[['DividendPerShare']] = data['DividendPerShare']
-            print(df)
-
-            df.to_sql('STOCK_INFO', conn, if_exists='append', index = False)
+            data = [res_data['Symbol'], res_data['DividendYield'], res_data['DividendDate'], res_data['ExDividendDate'], res_data['DividendPerShare']]
+            c.execute('INSERT INTO STOCK_INFO (Symbol,Sector,DividendYield,DividendDate,ExDividendDate) VALUES (?, ?, ?, ?, ?)', data)
             conn.close()
+            print(data)
 
          except Exception as e:
             print(e)
@@ -161,7 +152,6 @@ def main():
 
     for symbol in dg.get_symbol_list():
         dg.get_stock_time_series_data(symbol, '1min', 'TIME_SERIES_INTRADAY_EXTENDED')
-        stock_type_lists = [div_stocks, pref_stocks, risk_swing_stocks]
 
 
 
