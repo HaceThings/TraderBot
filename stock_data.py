@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import sqlite3
 import time
+from bs4 import BeautifulSoup
 
 class data_collector():
     def __init__(self):
@@ -48,6 +49,7 @@ class data_collector():
             c = conn.cursor()
             data = [res_data['Symbol'], res_data['DividendYield'], res_data['DividendDate'], res_data['ExDividendDate'], res_data['DividendPerShare']]
             c.execute('INSERT INTO STOCK_INFO (Symbol,Sector,DividendYield,DividendDate,ExDividendDate) VALUES (?, ?, ?, ?, ?)', data)
+            conn.commit()
             conn.close()
             print(data)
 
@@ -59,6 +61,39 @@ class data_collector():
         for symbol in self.get_symbol_list():
             self.get_stock_information_single(symbol)
             time.sleep(12)
+
+    def get_dividend_history(self, symbol):
+        """Gets dividend history for a given stock."""
+        ex_dividend = []
+        payoutDate = []
+        cash_amount = []
+        percent_change = []
+        symbols = []
+
+        res = requests.get("https://dividendhistory.org/payout/"+ symbol + "/")
+        soup = BeautifulSoup(res.text)
+
+        dividend_table = soup.find_all("tr")
+        for row in dividend_table:
+            row_list = row.text.split("\n")
+            print(len(row_list))
+            if len(row_list) == 6:
+                ex_dividend.append(row_list[2])
+                payoutDate.append(row_list[3])
+                cash_amount.append(row_list[4])
+                percent_change.append(row_list[5])
+                symbols.append(symbol)
+
+            df = pd.DataFrame(symbols, columns=['Symbols'])
+            df[['ExDividend Date']] = ex_dividend
+            df[['Payout Date']] = payoutDate
+            df[['Cash Amount']] = cash_amount
+            df[['Percent Change']] = percent_change
+ 
+            print(df)
+
+            print(symbol.capitalize())
+
 
     def get_stock_time_series_data(self, symbol="T", interval="1min", type="TIME_SERIES_INTRADAY"): 
         """
@@ -124,6 +159,7 @@ class data_collector():
 
             print(symbol.capitalize())
             df.to_sql('STOCK_DATA', conn, if_exists='append', index = False)
+            conn.commit()
             conn.close()
         except Exception:
             pass
