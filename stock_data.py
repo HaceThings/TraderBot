@@ -6,7 +6,7 @@ import sqlite3
 import time
 from bs4 import BeautifulSoup
 
-class data_collector():
+class data_scraper():
     def __init__(self):
         self.symbol_list = []
         self.db_filename = 'demo.db'
@@ -19,9 +19,10 @@ class data_collector():
             # Create a table to store stock information
             c.execute('CREATE TABLE STOCK_INFO (Symbol text, Sector text, DividendYield decimal, DividendDate datetime, ExDividendDate datetime)')
             # Create a table to store stock intraday data
-            c.execute('CREATE TABLE STOCK_DATA (TimeStamp datetime, Open decimal, High decimal, Low decimal, Close decimal, Volume int)')
+            c.execute('CREATE TABLE STOCK_DATA (Symbol text, TimeStamp datetime, Open decimal, High decimal, Low decimal, Close decimal, Volume int)')
+            # Create a table to store stock dividend history data
+            c.execute('CREATE TABLE STOCK_DIVIDEND_HISTORY (Symbol text, PayoutDate datetime, ExDividendDate datetime, CashAmount decimal, PercentChange decimal)')
             conn.commit()
-            print(sqlite3.version)
         except Exception as e:
             print(e)
         finally:
@@ -76,23 +77,22 @@ class data_collector():
         dividend_table = soup.find_all("tr")
         for row in dividend_table:
             row_list = row.text.split("\n")
-            print(len(row_list))
             if len(row_list) == 6:
-                ex_dividend.append(row_list[2])
-                payoutDate.append(row_list[3])
-                cash_amount.append(row_list[4])
-                percent_change.append(row_list[5])
+                ex_dividend.append(row_list[1])
+                payoutDate.append(row_list[2])
+                cash_amount.append(row_list[3])
+                percent_change.append(row_list[4])
                 symbols.append(symbol)
 
-            df = pd.DataFrame(symbols, columns=['Symbols'])
-            df[['ExDividend Date']] = ex_dividend
-            df[['Payout Date']] = payoutDate
-            df[['Cash Amount']] = cash_amount
-            df[['Percent Change']] = percent_change
- 
-            print(df)
-
-            print(symbol.capitalize())
+                df = pd.DataFrame(symbols, columns=['Symbol'])
+                df[['ExDividendDate']] = ex_dividend
+                df[['PayoutDate']] = payoutDate
+                df[['CashAmount']] = cash_amount
+                df[['PercentChange']] = percent_change
+        conn = sqlite3.connect(self.db_filename)
+        df.to_sql('STOCK_DIVIDEND_HISTORY', conn, if_exists='append', index = False)
+        conn.commit()
+        conn.close()
 
 
     def get_stock_time_series_data(self, symbol="T", interval="1min", type="TIME_SERIES_INTRADAY"): 
@@ -110,59 +110,34 @@ class data_collector():
                 TIME_SERIES_MONTHLY - This API returns monthly time series (last trading day of each month, monthly open, monthly high, monthly low, monthly close, monthly volume) of the global equity specified, covering 20+ years of historical data. 
                 TIME_SERIES_MONTHLY_ADJUSTED - This API returns monthly adjusted time series (last trading day of each month, monthly open, monthly high, monthly low, monthly close, monthly adjusted close, monthly volume, monthly dividend) of the equity specified, covering 20+ years of historical data. 
         """
+        years = range(1,20,1)
+        months = range(1,12,1)
+        
+        for year in years:
+            for month in months:
+                res = requests.get("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval + "&slice=year" + str(year) + "month" + str(month) + "&apikey=" + self.api_key, stream=True, timeout=None)
+                try:
+                    conn = sqlite3.connect(self.db_filename)
+                    c = conn.cursor()
 
-        res = requests.get("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval  + "&apikey=" + self.api_key)
-
-        time_stamps = []
-        open = []
-        high = []
-        low = []
-        close = []
-        volume = []
-        stocks = []
-        stock_types = []
-        headers = ["Time Stamp", "Open", "High", "Low", "Close", "Volume"]
-
-        try:
-            conn = sqlite3.connect(self.db_filename)
-            c = conn.cursor()
-
-            data = json.loads(res.text)
-            ###Conversion from dictionary to pandas dataframe###
-            #Returns a group of the key-value pairs in the dictionary
-            result = data.items()
-            #Converts obj to a list
-            temp_data = list(result)
-            #Convert list to an array
-            temp_array = np.array(temp_data)
-            intraday_data = np.array(list(temp_array[1][1].items()))
-    
-            for row in intraday_data:
-                stocks.append(symbol)
-                stock_types.append(symbol_type)
-                time_stamps.append(row[0])
-                open.append(row[1]['1. open'])
-                high.append(row[1]['2. high'])
-                low.append(row[1]['3. low'])
-                close.append(row[1]['4. close'])
-                volume.append(row[1]['5. volume'])
-    
-            df = pd.DataFrame(stocks, columns=['Symbols'])
-            df[['Stock Type']] = stock_types
-            df[[headers[0]]] = time_stamps
-            df[[headers[1]]] = open
-            df[[headers[2]]] = high
-            df[[headers[3]]] = low
-            df[[headers[4]]] = close
-            df[[headers[5]]] = volume
-            print(df)
-
-            print(symbol.capitalize())
-            df.to_sql('STOCK_DATA', conn, if_exists='append', index = False)
-            conn.commit()
-            conn.close()
-        except Exception:
-            pass
+                    res_data = json.loads(res.text)
+                    ###Conversion from dictionary to pandas dataframe###
+                    #Returns a group of the key-value pairs in the dictionary
+                    result = res_data.items()
+                    #Converts obj to a list
+                    temp_data = list(result)
+                    dates = list(temp_data[1][1])
+                    stock_data = list(temp_data[1][1].values())
+                    
+                    for i in range(0,len(data)):
+                        if True:
+                            data = [symbol, dates[i], data[i]['1. open'], data[i]['2. high'], data[i]['3. low'], data[i]['4. close'], data[i]['5. volume']]
+                            c.execute('INSERT INTO STOCK_DATA (Symbol,TimeStamp,Open,High,Low,Close,Volume) VALUES (?, ?, ?, ?, ?, ?, ?)', data)
+                            conn.commit()
+                            conn.close()
+                except Exception as e:
+                    print(e)
+                    pass
 
 
 
@@ -179,15 +154,14 @@ def main():
         for symbol in list:
             symbol_list.append(symbol)
 
-    dg = data_collector()
+    dg = data_scraper()
     dg.set_symbol_list(symbol_list)
     dg.set_db_filename('stock_data.db')
     dg.create_db()
-    dg.get_stock_information_list()
-    dg.get_stock_time_series_data()
+    dg.get_stock_information_single(dg.get_symbol_list()[1])
+    dg.get_stock_time_series_data(dg.get_symbol_list()[1])
+    dg.get_dividend_history(dg.get_symbol_list()[1])
 
-    for symbol in dg.get_symbol_list():
-        dg.get_stock_time_series_data(symbol, '1min', 'TIME_SERIES_INTRADAY_EXTENDED')
 
 
 
