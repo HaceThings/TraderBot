@@ -6,12 +6,14 @@ import sqlite3
 import time
 import csv
 from bs4 import BeautifulSoup
+import settings
 
 class data_scraper():
     def __init__(self):
-        self.symbol_list = []
-        self.db_filename = 'demo.db'
-        self.api_key = "QFAYI1XPUGD6UF9O"
+        self.symbol_list = settings.my_database['symbol_list']
+        self.db_filename = settings.my_database['filename']
+        self.api_key = settings.api_key
+        self.table_names = settings.my_database['table_names']
 
     def create_db(self):
         try:
@@ -29,6 +31,16 @@ class data_scraper():
         finally:
             if conn:
                 conn.close()
+
+    def clean_database(self):
+        try:
+            conn = sqlite3.connect(self.db_filename)
+            c = conn.cursor()
+            c.execute(  'SELECT Symbol, TimeStamp, COUNT(*)'+
+                        'FROM STOCK_DATA' +
+                        'GROUP BY TimeStamp' +
+                        'HAVING COUNT (TimeStamp)>1')
+            results = c.fetchall()
 
     def get_db_filename(self):
         return self.db_filename
@@ -117,17 +129,20 @@ class data_scraper():
             c = conn.cursor()
             with requests.Session() as s:
                 download = s.get(link)
+                tic = time.perf_counter()
                 decoded_content = download.content.decode('utf-8')
                 cr = csv.reader(decoded_content.splitlines(), delimiter=',')
                 my_list = list(cr)
                 for row in my_list:
-                    #TODO: Add Symbol to beginning of list 
-                    row.append(symbol)
-                    c.execute('INSERT INTO STOCK_DATA (Symbol,TimeStamp,Open,High,Low,Close,Volume) VALUES (?, ?, ?, ?, ?, ?, ?)', row)
-                    print(row)
-                    conn.commit()         
+                    if "time" not in row[0]:
+                        row.insert(0, symbol)
+                        c.execute('INSERT INTO STOCK_DATA (Symbol,TimeStamp,Open,High,Low,Close,Volume) VALUES (?, ?, ?, ?, ?, ?, ?)', row)
+                        print(row)
+                        conn.commit()         
             conn.close()
-            time.sleep(12)
+            toc = time.perf_counter()
+            if (toc-tic < 12):
+                time.sleep(12-(toc-tic))
         except Exception as e:
             print(e)
             pass
@@ -153,12 +168,13 @@ def main():
             symbol_list.append(symbol)
 
     dg = data_scraper()
-    dg.set_symbol_list(symbol_list)
-    symbol = "T"
+    #dg.set_symbol_list(symbol_list)
+    #symbol = "T"
     dg.set_db_filename('stock_data.db')
     #dg.get_stock_information_single(symbol)
-    dg.get_all_stock_time_series_data(symbol)
+    #dg.get_all_stock_time_series_data(symbol)
     #dg.get_dividend_history(symbol)
+    dg.clean_database()
 
 
 
