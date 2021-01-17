@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import sqlite3
 import time
+import csv
 from bs4 import BeautifulSoup
 
 class data_scraper():
@@ -95,7 +96,7 @@ class data_scraper():
         conn.close()
 
 
-    def get_stock_time_series_data(self, symbol="T", interval="1min", type="TIME_SERIES_INTRADAY"): 
+    def get_stock_time_series_data(self, symbol="T", interval="15min", type="TIME_SERIES_INTRADAY_EXTENDED", month=1, year=1): 
         """
         Gathers stock intraday data from AlphaVantage. 
         Parameters: 
@@ -110,36 +111,33 @@ class data_scraper():
                 TIME_SERIES_MONTHLY - This API returns monthly time series (last trading day of each month, monthly open, monthly high, monthly low, monthly close, monthly volume) of the global equity specified, covering 20+ years of historical data. 
                 TIME_SERIES_MONTHLY_ADJUSTED - This API returns monthly adjusted time series (last trading day of each month, monthly open, monthly high, monthly low, monthly close, monthly adjusted close, monthly volume, monthly dividend) of the equity specified, covering 20+ years of historical data. 
         """
-        years = range(1,20,1)
+        link = str("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval + "&slice=year" + str(year) + "month" + str(month) + "&apikey=" + self.api_key)
+        try:
+            conn = sqlite3.connect(self.db_filename)
+            c = conn.cursor()
+            with requests.Session() as s:
+                download = s.get(link)
+                decoded_content = download.content.decode('utf-8')
+                cr = csv.reader(decoded_content.splitlines(), delimiter=',')
+                my_list = list(cr)
+                for row in my_list:
+                    #TODO: Add Symbol to beginning of list 
+                    row.append(symbol)
+                    c.execute('INSERT INTO STOCK_DATA (Symbol,TimeStamp,Open,High,Low,Close,Volume) VALUES (?, ?, ?, ?, ?, ?, ?)', row)
+                    print(row)
+                    conn.commit()         
+            conn.close()
+            time.sleep(12)
+        except Exception as e:
+            print(e)
+            pass
+
+    def get_all_stock_time_series_data(self, symbol="T", interval="1min", type="TIME_SERIES_INTRADAY_EXTENDED"): 
+        years = range(1,10,1)
         months = range(1,12,1)
-        
         for year in years:
             for month in months:
-                res = requests.get("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval + "&slice=year" + str(year) + "month" + str(month) + "&apikey=" + self.api_key, stream=True, timeout=None)
-                try:
-                    conn = sqlite3.connect(self.db_filename)
-                    c = conn.cursor()
-
-                    res_data = json.loads(res.text)
-                    ###Conversion from dictionary to pandas dataframe###
-                    #Returns a group of the key-value pairs in the dictionary
-                    result = res_data.items()
-                    #Converts obj to a list
-                    temp_data = list(result)
-                    dates = list(temp_data[1][1])
-                    stock_data = list(temp_data[1][1].values())
-                    
-                    for i in range(0,len(data)):
-                        if True:
-                            data = [symbol, dates[i], data[i]['1. open'], data[i]['2. high'], data[i]['3. low'], data[i]['4. close'], data[i]['5. volume']]
-                            c.execute('INSERT INTO STOCK_DATA (Symbol,TimeStamp,Open,High,Low,Close,Volume) VALUES (?, ?, ?, ?, ?, ?, ?)', data)
-                            conn.commit()
-                            conn.close()
-                except Exception as e:
-                    print(e)
-                    pass
-
-
+                self.get_stock_time_series_data(symbol, interval, type, month, year)
 
 def main():
     ### DATA IMPORT ###
@@ -156,11 +154,11 @@ def main():
 
     dg = data_scraper()
     dg.set_symbol_list(symbol_list)
+    symbol = "T"
     dg.set_db_filename('stock_data.db')
-    dg.create_db()
-    dg.get_stock_information_single(dg.get_symbol_list()[1])
-    dg.get_stock_time_series_data(dg.get_symbol_list()[1])
-    dg.get_dividend_history(dg.get_symbol_list()[1])
+    #dg.get_stock_information_single(symbol)
+    dg.get_all_stock_time_series_data(symbol)
+    #dg.get_dividend_history(symbol)
 
 
 
