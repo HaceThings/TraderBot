@@ -6,14 +6,13 @@ import sqlite3
 import time
 import csv
 from bs4 import BeautifulSoup
-import settings
 
 class data_scraper():
     def __init__(self):
-        self.symbol_list = settings.my_database['symbol_list']
-        self.db_filename = settings.my_database['filename']
-        self.api_key = settings.api_key
-        self.table_names = settings.my_database['table_names']
+        #TODO: Add settings/config file to store api_key
+        self.symbol_list = []
+        self.db_filename = "stock_data.db"
+        self.api_key = "QFAYI1XPUGD6UF9O"
 
     def create_db(self):
         try:
@@ -41,6 +40,8 @@ class data_scraper():
                         'GROUP BY TimeStamp' +
                         'HAVING COUNT (TimeStamp)>1')
             results = c.fetchall()
+        except Exception as e:
+            pass
 
     def get_db_filename(self):
         return self.db_filename
@@ -107,7 +108,6 @@ class data_scraper():
         conn.commit()
         conn.close()
 
-
     def get_stock_time_series_data(self, symbol="T", interval="15min", type="TIME_SERIES_INTRADAY_EXTENDED", month=1, year=1): 
         """
         Gathers stock intraday data from AlphaVantage. 
@@ -161,20 +161,22 @@ def main():
     div_stocks = np.genfromtxt('StockData/Watchlist_DIV+Swings_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
     pref_stocks = np.genfromtxt('StockData/Watchlist_Preferred+Stocks_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
     risk_swing_stocks = np.genfromtxt('StockData/Watchlist_Risk+Swing_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
-    stock_type_lists = [div_stocks, pref_stocks, risk_swing_stocks]
+    #stock_type_lists = [div_stocks, pref_stocks, risk_swing_stocks]
+    stock_type_lists = div_stocks
 
     for list in stock_type_lists:
         for symbol in list:
             symbol_list.append(symbol)
 
     dg = data_scraper()
-    #dg.set_symbol_list(symbol_list)
-    #symbol = "T"
+    dg.set_symbol_list(symbol_list)
+    symbol = "T"
     dg.set_db_filename('stock_data.db')
+    dg.create_db()
     #dg.get_stock_information_single(symbol)
-    #dg.get_all_stock_time_series_data(symbol)
+    dg.get_all_stock_time_series_data(symbol)
     #dg.get_dividend_history(symbol)
-    dg.clean_database()
+    #dg.clean_database()
 
 
 
