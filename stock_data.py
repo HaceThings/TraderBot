@@ -6,13 +6,19 @@ import sqlite3
 import time
 import csv
 from bs4 import BeautifulSoup
+import settings
+import matplotlib
 
-class data_scraper():
+class database_manager():
     def __init__(self):
-        #TODO: Add settings/config file to store api_key
-        self.symbol_list = []
-        self.db_filename = "stock_data.db"
-        self.api_key = "QFAYI1XPUGD6UF9O"
+        self.db_filename = settings.Settings()._dict_['filename']
+
+    def get_db_filename(self):
+        return self.db_filename
+
+    def set_db_filename(self, new_filename):
+        self.db_filename = new_filename
+        settings.Settings()._dict_['filename'] = self.db_filename
 
     def create_db(self):
         try:
@@ -31,31 +37,61 @@ class data_scraper():
             if conn:
                 conn.close()
 
-    def clean_database(self):
-        try:
-            conn = sqlite3.connect(self.db_filename)
-            c = conn.cursor()
-            c.execute(  'SELECT Symbol, TimeStamp, COUNT(*)'+
-                        'FROM STOCK_DATA' +
-                        'GROUP BY TimeStamp' +
-                        'HAVING COUNT (TimeStamp)>1')
-            results = c.fetchall()
-        except Exception as e:
-            pass
+class dividend_data():
+    def __init__(self):
+        self.data = pd.DataFrame()
+        self.db_filename = settings.Settings()._dict_['filename']
+        self.URL = "https://dividendhistory.org/payout/"
 
-    def get_db_filename(self):
-        return self.db_filename
+    def set_dividend_history(self, symbol):
+        """Gets dividend history for a given stock."""
+        ex_dividend = []
+        payoutDate = []
+        cash_amount = []
+        percent_change = []
+        symbols = []
 
-    def set_db_filename(self, db_filename):
-        self.db_filename = db_filename
+        res = requests.get(str(self.URL + symbol + "/"))
+        soup = BeautifulSoup(res.text)
 
-    def get_symbol_list(self):
-        return self.symbol_list
+        dividend_table = soup.find_all("tr")
+        for row in dividend_table:
+            row_list = row.text.split("\n")
+            if len(row_list) == 6:
+                ex_dividend.append(row_list[1])
+                payoutDate.append(row_list[2])
+                cash_amount.append(row_list[3])
+                percent_change.append(row_list[4])
+                symbols.append(symbol)
 
-    def set_symbol_list(self, symbol_list):
-        self.symbol_list = symbol_list
+        self.data = pd.DataFrame(data = {'Symbol' : symbols, 'ExDividendDate' : ex_dividend, 'PayoutDate' : payoutDate, 'CashAmount' : cash_amount, 'PercentChange' : percent_change})
 
-    def get_stock_information_single(self, symbol):
+        conn = sqlite3.connect(self.db_filename)
+        self.data.to_sql('STOCK_DIVIDEND_HISTORY', conn, if_exists='append', index = False)
+        conn.commit()
+        conn.close()
+        print("Dividend Data has been set.")
+
+    def get_dividend_history(self, symbol):
+        conn = sqlite3.connect(self.db_filename)
+        c = conn.cursor()
+        sql_query = pd.read_sql_query('SELECT ' + symbol + ' FROM STOCK_DIVIDEND_HISTORY')
+        self.data = pd.DataFrame(sql_query, columns=['Symbol', 'ExDividendDate', 'PayoutDate', 'CashAmount', 'PercentChange'])
+        return self.data
+
+class intraday_data():
+    def __init__(self):
+        self.db_filename = settings.Settings()._dict_['filename']
+        self.api_key = settings.Settings()._dict_['api_key']
+        self.stock_information_data = []
+        self.stock_intraday_data = []
+
+    def get_stock_information(self):
+        conn = sqlite3.connect(self.db_filename)
+        sql_query = pd.read_sql_query("""SELECT DISTINCT * FROM STOCK_INFO""")
+        self.data = pd.DataFrame(sql_query, columns=['Symbol', 'Sector', 'DividendYield', 'DividendDate', 'ExDividendDate'])
+
+    def set_stock_information(self, symbol):
          res = requests.get("https://www.alphavantage.co/query?function=" + "OVERVIEW" + "&symbol=" + symbol + "&apikey=" + self.api_key)
          res_data = json.loads(res.text)
          
@@ -72,43 +108,7 @@ class data_scraper():
             print(e)
             pass
 
-    def get_stock_information_list(self):
-        for symbol in self.get_symbol_list():
-            self.get_stock_information_single(symbol)
-            time.sleep(12)
-
-    def get_dividend_history(self, symbol):
-        """Gets dividend history for a given stock."""
-        ex_dividend = []
-        payoutDate = []
-        cash_amount = []
-        percent_change = []
-        symbols = []
-
-        res = requests.get("https://dividendhistory.org/payout/"+ symbol + "/")
-        soup = BeautifulSoup(res.text)
-
-        dividend_table = soup.find_all("tr")
-        for row in dividend_table:
-            row_list = row.text.split("\n")
-            if len(row_list) == 6:
-                ex_dividend.append(row_list[1])
-                payoutDate.append(row_list[2])
-                cash_amount.append(row_list[3])
-                percent_change.append(row_list[4])
-                symbols.append(symbol)
-
-                df = pd.DataFrame(symbols, columns=['Symbol'])
-                df[['ExDividendDate']] = ex_dividend
-                df[['PayoutDate']] = payoutDate
-                df[['CashAmount']] = cash_amount
-                df[['PercentChange']] = percent_change
-        conn = sqlite3.connect(self.db_filename)
-        df.to_sql('STOCK_DIVIDEND_HISTORY', conn, if_exists='append', index = False)
-        conn.commit()
-        conn.close()
-
-    def get_stock_time_series_data(self, symbol="T", interval="15min", type="TIME_SERIES_INTRADAY_EXTENDED", month=1, year=1): 
+    def set_stock_time_series_data(self, symbol="T", interval="15min", type="TIME_SERIES_INTRADAY_EXTENDED", month=1, year=1): 
         """
         Gathers stock intraday data from AlphaVantage. 
         Parameters: 
@@ -147,43 +147,19 @@ class data_scraper():
             print(e)
             pass
 
-    def get_all_stock_time_series_data(self, symbol="T", interval="1min", type="TIME_SERIES_INTRADAY_EXTENDED"): 
-        years = range(1,10,1)
-        months = range(1,12,1)
-        for year in years:
-            for month in months:
-                self.get_stock_time_series_data(symbol, interval, type, month, year)
+    def set_stock_time_series_data_extended(self, symbol="T", interval="1min", type="TIME_SERIES_INTRADAY_EXTENDED"): 
+            years = range(1,10,1)
+            months = range(1,12,1)
+            for year in years:
+                for month in months:
+                    self.set_stock_time_series_data(symbol, interval, type, month, year)
 
-def main():
-    ### DATA IMPORT ###
-    symbol_list = []
-    #Import all stock data from Alex
-    div_stocks = np.genfromtxt('StockData/Watchlist_DIV+Swings_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
-    pref_stocks = np.genfromtxt('StockData/Watchlist_Preferred+Stocks_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
-    risk_swing_stocks = np.genfromtxt('StockData/Watchlist_Risk+Swing_2020_12_30.csv', delimiter=',', dtype=str, skip_header=1, usecols=(0))
-    #stock_type_lists = [div_stocks, pref_stocks, risk_swing_stocks]
-    stock_type_lists = div_stocks
+    def get_stock_time_series_data(self, symbol="T", interval="15min", type="TIME_SERIES_INTRADAY_EXTENDED", start_date = "2020-12-31 08:00:00", end_date = "2020-12-31 15:00:00"):
+        conn = sqlite3.connect(self.db_filename)
+        #Add time interval data
+        sql_query = pd.read_sql_query("""SELECT DISTINCT * FROM STOCK_DATA WHERE TimeStamp BETWEEN ? AND ? AND Symbol = ?;""", params = [start_date, end_date, symbol])
+        self.data = pd.DataFrame(sql_query, columns=['Symbol', 'TimeStamp', 'Open', 'High', 'Close', 'Volume'])
 
-    for list in stock_type_lists:
-        for symbol in list:
-            symbol_list.append(symbol)
-
-    dg = data_scraper()
-    dg.set_symbol_list(symbol_list)
-    symbol = "T"
-    dg.set_db_filename('stock_data.db')
-    dg.create_db()
-    #dg.get_stock_information_single(symbol)
-    dg.get_all_stock_time_series_data(symbol)
-    #dg.get_dividend_history(symbol)
-    #dg.clean_database()
-
-
-
-
-if __name__ == '__main__': 
-    main()
-
-
+class plotter():
 
 
