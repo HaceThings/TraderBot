@@ -18,7 +18,7 @@ class database_manager():
 
     def set_db_filename(self, new_filename):
         self.db_filename = new_filename
-        settings.Settings()._dict_['filename'] = self.db_filename
+        settings.Settings().set('filename', self.db_filename)
 
     def create_db(self):
         try:
@@ -52,7 +52,7 @@ class dividend_data():
         symbols = []
 
         res = requests.get(str(self.URL + symbol + "/"))
-        soup = BeautifulSoup(res.text)
+        soup = BeautifulSoup(res.text, 'html.parser')
 
         dividend_table = soup.find_all("tr")
         for row in dividend_table:
@@ -75,9 +75,18 @@ class dividend_data():
     def get_dividend_history(self, symbol):
         conn = sqlite3.connect(self.db_filename)
         c = conn.cursor()
-        sql_query = pd.read_sql_query('SELECT ' + symbol + ' FROM STOCK_DIVIDEND_HISTORY')
-        self.data = pd.DataFrame(sql_query, columns=['Symbol', 'ExDividendDate', 'PayoutDate', 'CashAmount', 'PercentChange'])
-        return self.data
+        try:
+            sql_query = pd.read_sql_query("""SELECT DISTINCT * FROM STOCK_DIVIDEND_HISTORY WHERE Symbol = ?""", params = [symbol], con=conn)
+            self.data = pd.DataFrame(sql_query, columns=['Symbol', 'ExDividendDate', 'PayoutDate', 'CashAmount', 'PercentChange'])
+            return self.data
+            
+        except Exception as e:
+            print(e)
+            pass
+
+        finally:
+            if conn:
+                conn.close()
 
 class intraday_data():
     def __init__(self):
@@ -86,36 +95,80 @@ class intraday_data():
         self.stock_information_data = []
         self.stock_intraday_data = []
 
-    def get_stock_information(self):
-        conn = sqlite3.connect(self.db_filename)
-        sql_query = pd.read_sql_query("""SELECT DISTINCT * FROM STOCK_INFO""")
-        self.data = pd.DataFrame(sql_query, columns=['Symbol', 'Sector', 'DividendYield', 'DividendDate', 'ExDividendDate'])
+    def set_db_filename(self, filename):
+        self.db_filename = filename
+
+    def get_stock_information(self, symbol):
+        try:
+            conn = sqlite3.connect(self.db_filename)
+            sql_query = pd.read_sql_query("""SELECT DISTINCT * FROM STOCK_INFO WHERE Symbol = ?""", con=conn, params=[symbol])
+            self.data = pd.DataFrame(sql_query, columns=['Symbol', 'Sector', 'DividendYield', 'DividendDate', 'ExDividendDate'])
+            
+        except Exception as e:
+            print(e)
+            pass
+
+        finally:
+            if conn:
+                conn.close()
 
     def set_stock_information(self, symbol):
-         res = requests.get("https://www.alphavantage.co/query?function=" + "OVERVIEW" + "&symbol=" + symbol + "&apikey=" + self.api_key)
-         res_data = json.loads(res.text)
+        res = requests.get("https://www.alphavantage.co/query?function=" + "OVERVIEW" + "&symbol=" + symbol + "&apikey=" + self.api_key)
+        res_data = json.loads(res.text)
          
-         try:
+        try:
             conn = sqlite3.connect(self.db_filename)
             c = conn.cursor()
             data = [res_data['Symbol'], res_data['DividendYield'], res_data['DividendDate'], res_data['ExDividendDate'], res_data['DividendPerShare']]
             c.execute('INSERT INTO STOCK_INFO (Symbol,Sector,DividendYield,DividendDate,ExDividendDate) VALUES (?, ?, ?, ?, ?)', data)
             conn.commit()
-            conn.close()
-            print(data)
 
-         except Exception as e:
+        except Exception as e:
             print(e)
             pass
 
-    def set_stock_time_series_data(self, symbol="T", interval="15min", type="TIME_SERIES_INTRADAY_EXTENDED", month=1, year=1): 
+        finally:
+            if conn:
+                conn.close()
+
+    def set_intraday_extended_data(self, symbol="T", interval="15min", month_range = range(1,12,1), year_range=range(1,2,1)): 
         """
-        Gathers stock intraday data from AlphaVantage. 
-        Parameters: 
-            symbol = stock symbol to gather
-            interval = time interval between two consecutive data points in the time series. The following values are supported: 1min, 5min, 15min, 30min, 60min.
-            type = the time series of your choice. Please see below for all options:
-                TIME_SERIES_INTRADAY_EXTENDED - This API returns the most recent 1-2 months of intraday data and is best suited for short-term/medium-term charting and trading strategy development.
+        Pulls extended stock intraday data from AlphaVantage. Use get_stock_time_series_data to get the intraday data.
+        :param symbol: Stock symbol
+        :param interval: time interval between two consecutive data points in the time series. The following values are supported: 1min, 5min, 15min, 30min, 60min.
+        :param month_range: month range that will be pulled from AlphaVantage. Default value should handle almost all cases.
+        :param year_range: year range that will be pulled from AlphaVantage. Default value should handle almost all cases.   
+        """
+
+        for year in year_range:
+            for month in month_range:
+                
+                slice = "year" + year + "month" + month
+                type = "TIME_SERIES_INTRADAY_EXTENDED"
+                link = str("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval + "&slice=" + slice + "&apikey=" + self.api_key)
+                
+                try:
+                    conn = sqlite3.connect(self.db_filename)
+                    df = pd.read_csv(link, ',', header = [0], parse_dates=['timestamp'])
+                    df.set_index('TimeStamp', inplace=True)
+                    df.to_sql(self.db_filename, conn, if_exists='append')
+                    conn.commit()
+                    print("Data has been pulled successfully. Please get the data from the get_stock_time_series_data method.")
+                except Exception as e:
+                    print(e)
+                    pass
+
+                finally:
+                    if conn:
+                        conn.close()
+
+    def set_intraday_data(self,  symbol="T", interval="15min", output_size="compact", type="TIME_SERIES_INTRADAY", ):
+        """
+        Pulls stock intraday data from AlphaVantage. Use get_stock_time_series_data to get the intraday data.
+        :param symbol: Stock symbol
+        :param interval: time interval between two consecutive data points in the time series. The following values are supported: 1min, 5min, 15min, 30min, 60min.
+        :param output_size: determines how much data is pulled. "compact" only pulls the past 100 data points. "full" pulls the full-length intraday time series.
+        :param type = the time series of your choice. Please see below for all options:
                 TIME_SERIES_DAILY - This API returns historical intraday time series for the trailing 2 years, covering over 2 million data points per ticker. 
                 TIME_SERIES_DAILY_ADJUSTED - This API returns raw (as-traded) daily time series (date, daily open, daily high, daily low, daily close, daily volume) of the global equity specified, covering 20+ years of historical data. 
                 TIME_SERIES_WEEKLY - This API returns weekly time series (last trading day of each week, weekly open, weekly high, weekly low, weekly close, weekly volume) of the global equity specified, covering 20+ years of historical data. 
@@ -123,43 +176,85 @@ class intraday_data():
                 TIME_SERIES_MONTHLY - This API returns monthly time series (last trading day of each month, monthly open, monthly high, monthly low, monthly close, monthly volume) of the global equity specified, covering 20+ years of historical data. 
                 TIME_SERIES_MONTHLY_ADJUSTED - This API returns monthly adjusted time series (last trading day of each month, monthly open, monthly high, monthly low, monthly close, monthly adjusted close, monthly volume, monthly dividend) of the equity specified, covering 20+ years of historical data. 
         """
-        link = str("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval + "&slice=year" + str(year) + "month" + str(month) + "&apikey=" + self.api_key)
+            
+        link = str("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval + "&outputsize=" + output_size + "&apikey=" + self.api_key + "&datatype=csv")
         try:
             conn = sqlite3.connect(self.db_filename)
-            c = conn.cursor()
-            with requests.Session() as s:
-                download = s.get(link)
-                tic = time.perf_counter()
-                decoded_content = download.content.decode('utf-8')
-                cr = csv.reader(decoded_content.splitlines(), delimiter=',')
-                my_list = list(cr)
-                for row in my_list:
-                    if "time" not in row[0]:
-                        row.insert(0, symbol)
-                        c.execute('INSERT INTO STOCK_DATA (Symbol,TimeStamp,Open,High,Low,Close,Volume) VALUES (?, ?, ?, ?, ?, ?, ?)', row)
-                        print(row)
-                        conn.commit()         
-            conn.close()
-            toc = time.perf_counter()
-            if (toc-tic < 12):
-                time.sleep(12-(toc-tic))
+            df = pd.read_csv(link, ',', header = [0], parse_dates=['timestamp'])
+            df.set_index('timestamp', inplace = True)
+
+            df.to_sql(symbol, conn, if_exists='append')
+            conn.commit()
+            print("Data has been pulled successfully. Please get the data from the get_stock_time_series_data method.")
         except Exception as e:
             print(e)
             pass
 
-    def set_stock_time_series_data_extended(self, symbol="T", interval="1min", type="TIME_SERIES_INTRADAY_EXTENDED"): 
-            years = range(1,10,1)
-            months = range(1,12,1)
-            for year in years:
-                for month in months:
-                    self.set_stock_time_series_data(symbol, interval, type, month, year)
+        finally:
+            if conn:
+                conn.close()
 
-    def get_stock_time_series_data(self, symbol="T", interval="15min", type="TIME_SERIES_INTRADAY_EXTENDED", start_date = "2020-12-31 08:00:00", end_date = "2020-12-31 15:00:00"):
-        conn = sqlite3.connect(self.db_filename)
-        #Add time interval data
-        sql_query = pd.read_sql_query("""SELECT DISTINCT * FROM STOCK_DATA WHERE TimeStamp BETWEEN ? AND ? AND Symbol = ?;""", params = [start_date, end_date, symbol])
-        self.data = pd.DataFrame(sql_query, columns=['Symbol', 'TimeStamp', 'Open', 'High', 'Close', 'Volume'])
+    def get_stock_time_series_data(self, symbol="T", start_date = "2021-01-28 11:00:00", end_date = "2021-01-28 15:00:00", freq = 'T'):
+        """
+        Return a pandas dataframe object with a stock's intraday data in a given date range and frequency.
+        :param symbol: Stock symbol
+        :param start_date: Start of time series data range
+        :param end_date: End of time series data range
+        :param freq: Frequency between data points. Common values: "D" = day, "H" = hour, "T" = minute, "W" = week
+        """
+        try:
+            conn = sqlite3.connect(self.db_filename)
+            query = ("SELECT DISTINCT * FROM " + symbol + " WHERE timestamp BETWEEN '" + start_date + "' AND '" + end_date + "'")
+            
+            df = pd.read_sql(query, conn, parse_dates = ['timestamp'])
+            
+            # TODO: Need to change the names of each column to match the format for backtesting.
+            # df.columns[1].name = "Open"
+            # df.columns[2].name = "High"
+            # df.columns[3].name = "Low"
+            # df.columns[4].name = "Close"
+            # df.columns[5].name = "Volume"
+            
+            # TODO: Resample data. Use the resample method in DataFrame.
 
-class plotter():
+            # df.resample(freq).mean()
+            return df
 
+        except Exception as e:
+            print(e)
+            pass
+        finally:
+            if conn:
+                conn.close()
 
+if __name__ == "__main__":
+    import stock_data
+    import pandas as pd
+    from backtesting import Backtest, Strategy
+    db = stock_data.database_manager()
+
+    div_data = stock_data.dividend_data()
+    div_data.set_dividend_history("T")
+    df_div = div_data.get_dividend_history("T")
+
+    id_d = stock_data.intraday_data()
+    id_d.set_intraday_data()
+    stocks = id_d.get_stock_time_series_data()
+
+    print(df_div)
+    print(stocks)
+
+    stocks.plot(figsize=(10,6))
+    
+    class SmaCross(Strategy):
+        def init(self):
+            price = self.data.Close
+
+        def next(self):
+            pass
+
+    bt = Backtest(stocks, SmaCross)
+    stats = bt.run()
+    bt.plot()
+
+    matplotlib.pyplot.show()

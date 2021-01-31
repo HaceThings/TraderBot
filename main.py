@@ -1,6 +1,7 @@
 import settings
 import stock_data
 import pandas as pd
+import matplotlib
 
 
 def main(): 

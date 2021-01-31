@@ -18,5 +18,9 @@ class Settings:
     def __enter__(self):
         return self
 
+    def set(self, key, value):
+        self.__dict__[key] = value
+        json.dump(self.__dict__, open(self._config_location, 'w'))
+
     def __exit__(self, exc_type, exc_value, traceback):
         json.dump(self.__dict__, open(self._config_location, 'w'))
