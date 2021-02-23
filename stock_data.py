@@ -194,7 +194,7 @@ class intraday_data():
             if conn:
                 conn.close()
 
-    def get_stock_time_series_data(self, symbol="T", start_date = "2021-01-28 11:00:00", end_date = "2021-01-28 15:00:00", freq = 'T'):
+    def get_stock_time_series_data(self, symbol="T", date_range = False, start_date = "2021-01-28 11:00:00", end_date = "2021-01-28 15:00:00", freq = 'T'):
         """
         Return a pandas dataframe object with a stock's intraday data in a given date range and frequency.
         :param symbol: Stock symbol
@@ -204,19 +204,17 @@ class intraday_data():
         """
         try:
             conn = sqlite3.connect(self.db_filename)
-            query = ("SELECT DISTINCT * FROM " + symbol + " WHERE timestamp BETWEEN '" + start_date + "' AND '" + end_date + "'")
-            
+            if date_range is True:
+                query = ("SELECT DISTINCT * FROM " + symbol + " WHERE timestamp BETWEEN '" + start_date + "' AND '" + end_date + "'")
+            else:
+                query = ("SELECT DISTINCT * FROM " + symbol)
+
+
             df = pd.read_sql(query, conn, parse_dates = ['timestamp'])
-            
-            # TODO: Need to change the names of each column to match the format for backtesting.
-            # df.columns[1].name = "Open"
-            # df.columns[2].name = "High"
-            # df.columns[3].name = "Low"
-            # df.columns[4].name = "Close"
-            # df.columns[5].name = "Volume"
+            df.rename(columns = {'timestamp':'Time', 'open':'Open', 'high':'High', 'low':'Low', 'close':'Close', 'volume':'Volume'}, inplace=True)
+            df.set_index('Time', inplace = True)
             
             # TODO: Resample data. Use the resample method in DataFrame.
-
             # df.resample(freq).mean()
             return df
 
@@ -238,14 +236,9 @@ if __name__ == "__main__":
     df_div = div_data.get_dividend_history("T")
 
     id_d = stock_data.intraday_data()
-    id_d.set_intraday_data()
-    stocks = id_d.get_stock_time_series_data()
+    id_d.set_intraday_data(output_size='full')
+    stocks = id_d.get_stock_time_series_data(start_date='2019-01-01 08:00:00', end_date='2021-01-01 08:00:00')
 
-    print(df_div)
-    print(stocks)
-
-    stocks.plot(figsize=(10,6))
-    
     class SmaCross(Strategy):
         def init(self):
             price = self.data.Close
@@ -256,5 +249,3 @@ if __name__ == "__main__":
     bt = Backtest(stocks, SmaCross)
     stats = bt.run()
     bt.plot()
-
-    matplotlib.pyplot.show()
