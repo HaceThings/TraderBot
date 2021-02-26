@@ -75,6 +75,7 @@ class dividend_data():
     def get_dividend_history(self, symbol):
         conn = sqlite3.connect(self.db_filename)
         c = conn.cursor()
+
         try:
             sql_query = pd.read_sql_query("""SELECT DISTINCT * FROM STOCK_DIVIDEND_HISTORY WHERE Symbol = ?""", params = [symbol], con=conn)
             self.data = pd.DataFrame(sql_query, columns=['Symbol', 'ExDividendDate', 'PayoutDate', 'CashAmount', 'PercentChange'])
@@ -176,18 +177,17 @@ class intraday_data():
                 TIME_SERIES_MONTHLY - This API returns monthly time series (last trading day of each month, monthly open, monthly high, monthly low, monthly close, monthly volume) of the global equity specified, covering 20+ years of historical data. 
                 TIME_SERIES_MONTHLY_ADJUSTED - This API returns monthly adjusted time series (last trading day of each month, monthly open, monthly high, monthly low, monthly close, monthly adjusted close, monthly volume, monthly dividend) of the equity specified, covering 20+ years of historical data. 
         """
-            
+ 
         link = str("https://www.alphavantage.co/query?function=" + type + "&symbol=" + symbol + "&interval=" + interval + "&outputsize=" + output_size + "&apikey=" + self.api_key + "&datatype=csv")
         try:
             conn = sqlite3.connect(self.db_filename)
             df = pd.read_csv(link, ',', header = [0], parse_dates=['timestamp'])
             df.set_index('timestamp', inplace = True)
-
             df.to_sql(symbol, conn, if_exists='append')
             conn.commit()
             print("Data has been pulled successfully. Please get the data from the get_stock_time_series_data method.")
         except Exception as e:
-            print(e)
+            print("Exception: " + e)
             pass
 
         finally:
@@ -205,7 +205,7 @@ class intraday_data():
         try:
             conn = sqlite3.connect(self.db_filename)
             if date_range is True:
-                query = ("SELECT DISTINCT * FROM " + symbol + " WHERE timestamp BETWEEN '" + start_date + "' AND '" + end_date + "'")
+                query = ("SELECT DISTINCT * FROM " + symbol + " WHERE timestamp BETWEEN '" + start_date.strftime('%Y-%m-%d %H:%M:%S') + "' AND '" + end_date.strftime('%Y-%m-%d %H:%M:%S') + "'")
             else:
                 query = ("SELECT DISTINCT * FROM " + symbol)
 
